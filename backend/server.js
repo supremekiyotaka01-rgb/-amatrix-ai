@@ -1,6 +1,42 @@
 require('dotenv').config();
 
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
+const { initializeApp, getApps } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+
+const firebaseApp = getApps().length
+  ? getApps()[0]
+  : initializeApp({ projectId: 'amatrix-ai' });
+
+const firebaseAuth = getAuth(firebaseApp);
+
+const chatLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.firebaseUser.uid,
+  message: { error: 'Limite de messages atteinte. Réessaie plus tard.' }
+});
+
+async function verifyFirebaseToken(req, res, next) {
+  try {
+    const authorization = req.headers.authorization || '';
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.slice(7)
+      : '';
+
+    if (!token) {
+      return res.status(401).json({ error: 'Connexion requise.' });
+    }
+
+    req.firebaseUser = await firebaseAuth.verifyIdToken(token);
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Authentification invalide.' });
+  }
+}
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -36,7 +72,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.post('/chat', async (req, res) => {
+app.post('/chat', verifyFirebaseToken, chatLimiter, async (req, res) => {
   try {
     const { message } = req.body;
 
@@ -44,6 +80,10 @@ app.post('/chat', async (req, res) => {
       return res.status(400).json({
         error: 'Message vide ou invalide.'
       });
+    }
+
+    if (message.length > 4000) {
+      return res.status(413).json({ error: 'Message trop long (maximum 4000 caractères).' });
     }
 
     if (!process.env.GROQ_API_KEY) {
