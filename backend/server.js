@@ -68,7 +68,6 @@ app.get('/health', (req, res) => {
     status: 'ok',
     app: 'AMATRIX AI',
     creator: 'Dev Kento AMATRIX',
-    realName: 'MULIMBI KAMANDA DONCIEL'
   });
 });
 
